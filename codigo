@@ -1,0 +1,151 @@
+// PINES DE CONEXIÓN
+const int SENSOR_ROJO = 34;    // Fotorresistor con filtro rojo
+const int SENSOR_VERDE = 35;   // Fotorresistor con filtro verde  
+const int BOCINA = 25;         // Zumbador pasivo
+const int LED_VERDE_INDICADOR = 26;  // LED verde (indica que puede pasar)
+const int LED_ROJO_INDICADOR = 27;   // LED rojo (indica que no puede pasar)
+
+// UMBRALES DE DETECCIÓN (ajustar según prueba)
+const int UMBRAL_ROJO = 2000;   
+const int UMBRAL_VERDE = 2000;  
+
+// VARIABLES GLOBALES
+String estadoSemaforo = "desconocido";
+unsigned long ultimoAviso = 0;
+const int INTERVALO_AVISO = 5000;  // No repetir aviso cada 5 segundos
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Configurar pines
+  pinMode(SENSOR_ROJO, INPUT);
+  pinMode(SENSOR_VERDE, INPUT);
+  pinMode(BOCINA, OUTPUT);
+  pinMode(LED_VERDE_INDICADOR, OUTPUT);
+  pinMode(LED_ROJO_INDICADOR, OUTPUT);
+  
+  // Prueba inicial
+  Serial.println("=== SISTEMA DE ASISTENCIA PEATONAL ===");
+  Serial.println("Conectando sensores...");
+  delay(1000);
+  
+  // Prueba de bocina y LEDs
+  tone(BOCINA, 1500, 500);
+  digitalWrite(LED_VERDE_INDICADOR, HIGH);
+  digitalWrite(LED_ROJO_INDICADOR, HIGH);
+  delay(500);
+  noTone(BOCINA);
+  digitalWrite(LED_VERDE_INDICADOR, LOW);
+  digitalWrite(LED_ROJO_INDICADOR, LOW);
+  
+  Serial.println("SISTEMA LISTO");
+  Serial.println("Esperando detección del semáforo...");
+  Serial.println("");
+}
+
+void loop() {
+  // Leer sensores
+  int valorRojo = analogRead(SENSOR_ROJO);
+  int valorVerde = analogRead(SENSOR_VERDE);
+  
+  // Mostrar valores en monitor (para calibración)
+  Serial.print("Sensor ROJO: ");
+  Serial.print(valorRojo);
+  Serial.print(" | Sensor VERDE: ");
+  Serial.println(valorVerde);
+  String nuevoEstado = detectarSemaforo(valorRojo, valorVerde);
+    if (nuevoEstado != estadoSemaforo || (millis() - ultimoAviso > INTERVALO_AVISO &&        nuevoEstado != "desconocido")) {
+    estadoSemaforo = nuevoEstado;
+    ultimoAviso = millis();
+    
+    if (estadoSemaforo == "rojo") {
+      Serial.println("🔴 SEMÁFORO EN ROJO → ¡PUEDE CRUZAR!");
+      avisoPuedePasar();
+    } 
+    else if (estadoSemaforo == "verde") {
+      Serial.println("🟢 SEMÁFORO EN VERDE → ¡NO CRUCE!");
+      avisoNoPuedePasar();
+    }
+    else {
+      Serial.println("⚠️ SEMÁFORO NO DETECTADO → PRECAUCIÓN");
+      avisoPrecaución();
+    }
+  }
+  
+  delay(200);  // Leer cada 200ms
+}
+
+// FUNCIÓN: Detectar color del semáforo
+String detectarSemaforo(int rojo, int verde) {
+  bool hayRojo = (rojo > UMBRAL_ROJO);
+  bool hayVerde = (verde > UMBRAL_VERDE);
+  
+  if (hayRojo && !hayVerde) {
+    return "rojo";
+  } 
+  else if (hayVerde && !hayRojo) {
+    return "verde";
+  }
+  else if (hayRojo && hayVerde) {
+    return "error";  // Ambas luces detectadas
+  }
+  else {
+    return "desconocido";
+  }
+}
+
+// FUNCIÓN: Aviso cuando PUEDE pasar (semáforo ROJO)
+void avisoPuedePasar() {
+  // LED verde encendido
+  digitalWrite(LED_VERDE_INDICADOR, HIGH);
+  digitalWrite(LED_ROJO_INDICADOR, LOW);
+  
+  // Sonido: 2 pitidos largos  (indica que puede cruzar)
+  Serial.println(">>> INSTRUCCIÓN: PUEDE CRUZAR - Sonido alegre");
+  tone(BOCINA, 1000, 800);
+  delay(900);
+  tone(BOCINA, 1200, 800);
+  delay(900);
+  tone(BOCINA, 1000, 1000);
+  
+  noTone(BOCINA);
+  digitalWrite(LED_VERDE_INDICADOR, LOW);
+}
+
+// FUNCIÓN: Aviso cuando NO puede pasar (semáforo VERDE)
+void avisoNoPuedePasar() {
+  // LED rojo encendido
+  digitalWrite(LED_VERDE_INDICADOR, LOW);
+  digitalWrite(LED_ROJO_INDICADOR, HIGH);
+  
+  Serial.println(">>> INSTRUCCIÓN: NO CRUCE - Sonido de alarma");
+  for (int i = 0; i < 3; i++) {
+    tone(BOCINA, 2500, 300);
+    delay(400);
+  }
+  // Sonido descendente de peligro
+  tone(BOCINA, 2000, 400);
+  delay(450);
+  tone(BOCINA, 1500, 400);
+  
+  noTone(BOCINA);
+  digitalWrite(LED_ROJO_INDICADOR, LOW);
+}
+void avisoPrecaución() {
+  for (int i = 0; i < 5; i++) {
+    digitalWrite(LED_VERDE_INDICADOR, HIGH);
+    digitalWrite(LED_ROJO_INDICADOR, HIGH);
+    delay(100);
+    digitalWrite(LED_VERDE_INDICADOR, LOW);
+    digitalWrite(LED_ROJO_INDICADOR, LOW);
+    delay(100);
+  }
+  
+  for (int i = 0; i < 3; i++) {
+    tone(BOCINA, 1000, 200);
+    delay(300);
+    noTone(BOCINA);
+    delay(200);
+  }
+  Serial.println(">>> INSTRUCCIÓN: PRECAUCIÓN - No hay señal clara");
+}
