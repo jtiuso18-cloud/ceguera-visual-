@@ -1,151 +1,274 @@
-// PINES DE CONEXIÓN
-const int SENSOR_ROJO = 34;    // Fotorresistor con filtro rojo
-const int SENSOR_VERDE = 35;   // Fotorresistor con filtro verde  
-const int BOCINA = 25;         // Zumbador pasivo
-const int LED_VERDE_INDICADOR = 26;  // LED verde (indica que puede pasar)
-const int LED_ROJO_INDICADOR = 27;   // LED rojo (indica que no puede pasar)
+//====================================================
+// SISTEMA DE ASISTENCIA PEATONAL PARA DISCAPACIDAD VISUAL
+// ESP32 + BLUETOOTH
+//====================================================
 
-// UMBRALES DE DETECCIÓN (ajustar según prueba)
-const int UMBRAL_ROJO = 2000;   
-const int UMBRAL_VERDE = 2000;  
+#include "BluetoothSerial.h"
 
-// VARIABLES GLOBALES
+BluetoothSerial SerialBT;
+
+//---------------- PINES DE CONEXIÓN ----------------
+const int SENSOR_ROJO = 34;
+const int SENSOR_VERDE = 35;
+
+const int BOCINA = 25;
+
+const int LED_VERDE_INDICADOR = 26;
+const int LED_ROJO_INDICADOR  = 27;
+
+//---------------- UMBRALES ----------------
+const int UMBRAL_ROJO = 2000;
+const int UMBRAL_VERDE = 2000;
+
+//---------------- VARIABLES ----------------
 String estadoSemaforo = "desconocido";
-unsigned long ultimoAviso = 0;
-const int INTERVALO_AVISO = 5000;  // No repetir aviso cada 5 segundos
 
+unsigned long ultimoAviso = 0;
+
+const int INTERVALO_AVISO = 5000;
+
+//====================================================
+// SETUP
+//====================================================
 void setup() {
+
   Serial.begin(115200);
-  
+
+  // INICIAR BLUETOOTH
+  SerialBT.begin("ESP32_SEMAFORO");
+
   // Configurar pines
   pinMode(SENSOR_ROJO, INPUT);
   pinMode(SENSOR_VERDE, INPUT);
+
   pinMode(BOCINA, OUTPUT);
+
   pinMode(LED_VERDE_INDICADOR, OUTPUT);
   pinMode(LED_ROJO_INDICADOR, OUTPUT);
-  
-  // Prueba inicial
-  Serial.println("=== SISTEMA DE ASISTENCIA PEATONAL ===");
-  Serial.println("Conectando sensores...");
+
+  //----------- PRUEBA INICIAL -----------
+  Serial.println("=================================");
+  Serial.println(" SISTEMA DE ASISTENCIA PEATONAL ");
+  Serial.println("=================================");
+
+  Serial.println("Bluetooth iniciado");
+  Serial.println("Nombre Bluetooth: ESP32_SEMAFORO");
+
   delay(1000);
-  
-  // Prueba de bocina y LEDs
-  tone(BOCINA, 1500, 500);
+
+  // Encender LEDs
   digitalWrite(LED_VERDE_INDICADOR, HIGH);
   digitalWrite(LED_ROJO_INDICADOR, HIGH);
+
+  // Sonido de prueba
+  tone(BOCINA, 1500, 500);
+
   delay(500);
+
   noTone(BOCINA);
+
   digitalWrite(LED_VERDE_INDICADOR, LOW);
   digitalWrite(LED_ROJO_INDICADOR, LOW);
-  
+
   Serial.println("SISTEMA LISTO");
-  Serial.println("Esperando detección del semáforo...");
-  Serial.println("");
+  Serial.println("Esperando deteccion del semaforo...");
+  Serial.println();
 }
 
+//====================================================
+// LOOP PRINCIPAL
+//====================================================
 void loop() {
+
   // Leer sensores
   int valorRojo = analogRead(SENSOR_ROJO);
   int valorVerde = analogRead(SENSOR_VERDE);
-  
-  // Mostrar valores en monitor (para calibración)
+
+  // Mostrar datos
   Serial.print("Sensor ROJO: ");
   Serial.print(valorRojo);
+
   Serial.print(" | Sensor VERDE: ");
   Serial.println(valorVerde);
+
+  // Detectar estado
   String nuevoEstado = detectarSemaforo(valorRojo, valorVerde);
-    if (nuevoEstado != estadoSemaforo || (millis() - ultimoAviso > INTERVALO_AVISO &&        nuevoEstado != "desconocido")) {
+
+  // Ejecutar solo si cambia
+  if (nuevoEstado != estadoSemaforo ||
+      (millis() - ultimoAviso > INTERVALO_AVISO &&
+       nuevoEstado != "desconocido")) {
+
     estadoSemaforo = nuevoEstado;
+
     ultimoAviso = millis();
-    
+
+    //------------- ROJO -------------
     if (estadoSemaforo == "rojo") {
-      Serial.println("🔴 SEMÁFORO EN ROJO → ¡PUEDE CRUZAR!");
+
+      Serial.println("ROJO DETECTADO -> PUEDE CRUZAR");
+
+      // MENSAJE AL CELULAR
+      SerialBT.println("PUEDE");
+
       avisoPuedePasar();
-    } 
+    }
+
+    //------------- VERDE -------------
     else if (estadoSemaforo == "verde") {
-      Serial.println("🟢 SEMÁFORO EN VERDE → ¡NO CRUCE!");
+
+      Serial.println("VERDE DETECTADO -> NO CRUCE");
+
+      // MENSAJE AL CELULAR
+      SerialBT.println("NO");
+
       avisoNoPuedePasar();
     }
+
+    //------------- ERROR -------------
+    else if (estadoSemaforo == "error") {
+
+      Serial.println("ERROR -> AMBOS COLORES DETECTADOS");
+
+      SerialBT.println("PRECAUCION");
+
+      avisoPrecaucion();
+    }
+
+    //------------- DESCONOCIDO -------------
     else {
-      Serial.println("⚠️ SEMÁFORO NO DETECTADO → PRECAUCIÓN");
-      avisoPrecaución();
+
+      Serial.println("SEMAFORO NO DETECTADO -> PRECAUCION");
+
+      SerialBT.println("PRECAUCION");
+
+      avisoPrecaucion();
     }
   }
-  
-  delay(200);  // Leer cada 200ms
+
+  delay(200);
 }
 
-// FUNCIÓN: Detectar color del semáforo
+//====================================================
+// FUNCION DETECTAR SEMAFORO
+//====================================================
 String detectarSemaforo(int rojo, int verde) {
+
   bool hayRojo = (rojo > UMBRAL_ROJO);
   bool hayVerde = (verde > UMBRAL_VERDE);
-  
+
+  // Solo rojo
   if (hayRojo && !hayVerde) {
+
     return "rojo";
-  } 
+  }
+
+  // Solo verde
   else if (hayVerde && !hayRojo) {
+
     return "verde";
   }
+
+  // Ambos detectados
   else if (hayRojo && hayVerde) {
-    return "error";  // Ambas luces detectadas
+
+    return "error";
   }
+
+  // Ninguno detectado
   else {
+
     return "desconocido";
   }
 }
 
-// FUNCIÓN: Aviso cuando PUEDE pasar (semáforo ROJO)
+//====================================================
+// AVISO: PUEDE PASAR
+//====================================================
 void avisoPuedePasar() {
-  // LED verde encendido
+
+  // LED verde
   digitalWrite(LED_VERDE_INDICADOR, HIGH);
   digitalWrite(LED_ROJO_INDICADOR, LOW);
-  
-  // Sonido: 2 pitidos largos  (indica que puede cruzar)
-  Serial.println(">>> INSTRUCCIÓN: PUEDE CRUZAR - Sonido alegre");
+
+  Serial.println(">>> PUEDE CRUZAR");
+
+  // Sonido agradable
   tone(BOCINA, 1000, 800);
   delay(900);
+
   tone(BOCINA, 1200, 800);
   delay(900);
+
   tone(BOCINA, 1000, 1000);
-  
+  delay(1100);
+
   noTone(BOCINA);
+
   digitalWrite(LED_VERDE_INDICADOR, LOW);
 }
 
-// FUNCIÓN: Aviso cuando NO puede pasar (semáforo VERDE)
+//====================================================
+// AVISO: NO PUEDE PASAR
+//====================================================
 void avisoNoPuedePasar() {
-  // LED rojo encendido
+
+  // LED rojo
   digitalWrite(LED_VERDE_INDICADOR, LOW);
   digitalWrite(LED_ROJO_INDICADOR, HIGH);
-  
-  Serial.println(">>> INSTRUCCIÓN: NO CRUCE - Sonido de alarma");
+
+  Serial.println(">>> NO CRUCE");
+
+  // Alarma
   for (int i = 0; i < 3; i++) {
+
     tone(BOCINA, 2500, 300);
+
     delay(400);
   }
-  // Sonido descendente de peligro
+
+  // Sonido descendente
   tone(BOCINA, 2000, 400);
   delay(450);
+
   tone(BOCINA, 1500, 400);
-  
+  delay(450);
+
   noTone(BOCINA);
+
   digitalWrite(LED_ROJO_INDICADOR, LOW);
 }
-void avisoPrecaución() {
+
+//====================================================
+// AVISO: PRECAUCION
+//====================================================
+void avisoPrecaucion() {
+
+  // Parpadear LEDs
   for (int i = 0; i < 5; i++) {
+
     digitalWrite(LED_VERDE_INDICADOR, HIGH);
     digitalWrite(LED_ROJO_INDICADOR, HIGH);
+
     delay(100);
+
     digitalWrite(LED_VERDE_INDICADOR, LOW);
     digitalWrite(LED_ROJO_INDICADOR, LOW);
+
     delay(100);
   }
-  
+
+  // Sonido advertencia
   for (int i = 0; i < 3; i++) {
+
     tone(BOCINA, 1000, 200);
+
     delay(300);
+
     noTone(BOCINA);
+
     delay(200);
   }
-  Serial.println(">>> INSTRUCCIÓN: PRECAUCIÓN - No hay señal clara");
+
+  Serial.println(">>> PRECAUCION - NO HAY SENAL CLARA");
 }
